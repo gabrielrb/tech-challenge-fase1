@@ -29,60 +29,62 @@ Um hospital universitário quer um sistema de apoio ao diagnóstico para acelera
 
 | Parte | Problema | Dados | Modelos comparados |
 | --- | --- | --- | --- |
-| A | câncer de mama: maligno ou benigno | 569 pacientes, 30 medidas do núcleo das células (tabela) | KNN, SVM, Árvore de Decisão e Random Forest |
+| A | câncer de mama: maligno ou benigno | 569 pacientes, 30 medidas do núcleo das células (tabela) | regressão logística, KNN, SVM, Árvore de Decisão e Random Forest |
 | B (EXTRA) | pneumonia no raio-X de tórax | 5.856 radiografias de crianças | 2 redes neurais convolucionais (CNN) e PCA + Random Forest |
 
 **Métrica principal: recall da classe doente.** O erro mais grave é o falso negativo, ou seja, dizer que um doente está saudável. O recall mede quantos doentes o modelo encontra. A precisão, o F1, a acurácia e a AUC ficam como métricas de apoio.
 
-**Uso na prática:** o modelo ordena a fila de exames pela chance de doença. O médico continua revendo todos os exames e decide.
+**Regra de decisão da Parte A:** perder um câncer é pelo menos 10 vezes pior do que um alarme falso, que só leva a mais exames. Por isso, o modelo e o limiar de decisão foram escolhidos pelo menor custo = 10 × cânceres perdidos + alarmes falsos, na validação. O recall sozinho não basta, porque chamar todos de malignos daria recall 1,0. O 10 é uma escolha do grupo, e não de um estudo: a equipe médica deve rever esse número.
+
+**Uso na prática:** os exames acima do limiar de decisão sobem na fila do médico (na Parte A, basta uma chance de câncer de 9,7%). O médico continua revendo todos os exames e decide.
 
 ## Resultados
 
-Resultados no conjunto de teste, que só foi usado no fim, depois da escolha do modelo. Os números da Parte A foram gerados com o scikit-learn 1.6.1: em outra versão, o Random Forest pode mudar um pouco.
+Resultados no conjunto de teste, que só foi usado no fim, depois da escolha do modelo (na Parte A, veja também a nota de transparência). Os números da Parte A foram gerados com o scikit-learn 1.6.1: em outra versão, alguns números podem mudar um pouco.
 
 | Parte | Problema | Modelo final | Recall da classe doente | Outras métricas |
 | --- | --- | --- | --- | --- |
-| A | câncer de mama (tabela) | Random Forest | 0,93 (39 de 42 cânceres) | acurácia 0,97 · precisão 1,00 · F1 0,96 · AUC 0,994 |
+| A | câncer de mama (tabela) | regressão logística, limiar 0,097 | 0,98 (41 de 42 cânceres) | 5 alarmes falsos em 72 benignos · acurácia 0,95 · precisão 0,89 · F1 0,93 · AUC 0,996 |
 | B | pneumonia (raio-X) | CNN 2 | 0,99 (385 de 390 pneumonias) | recall de NORMAL 0,41 · AUC 0,896 |
 
 ### Parte A: câncer de mama
 
-Na validação cruzada (5 partes, só com o treino), o SVM e o Random Forest ficaram à frente. Os dois foram ajustados com GridSearchCV, pelo recall.
+Cada modelo dá uma chance de câncer para cada paciente. Na validação (validação cruzada de 5 partes no treino, repetida com 10 sorteios), procuramos para cada modelo o limiar com o menor custo = 10 × cânceres perdidos + alarmes falsos.
 
-| Modelo | Recall na validação | Desvio entre as rodadas |
-| --- | --- | --- |
-| SVM ajustado | 0,959 | 0,015 |
-| Random Forest ajustado | 0,938 | 0,042 |
-| SVM (padrão) | 0,942 | 0,035 |
-| Random Forest (padrão) | 0,933 | 0,051 |
-| Árvore de Decisão | 0,922 | 0,045 |
-| KNN | 0,911 | 0,041 |
+| Modelo | Limiar de menor custo | Cânceres perdidos (de 170) | Alarmes falsos (de 285) | Custo |
+| --- | --- | --- | --- | --- |
+| Regressão logística | 0,097 | 2,3 | 28,6 | 51,6 |
+| SVM | 0,127 | 3,1 | 21,6 | 52,6 |
+| Random Forest | 0,271 | 4,0 | 22,5 | 62,5 |
+| KNN | 0,001 | 3,1 | 41,4 | 72,4 |
+| Árvore de Decisão | 0,001 | 16,7 | 17,8 | 184,8 |
 
-O Random Forest foi o escolhido. O SVM teve recall um pouco maior, mas a diferença de 0,021 dá menos de 1 câncer por rodada e é menor que o desvio do próprio Random Forest (0,042). O Random Forest mostra de forma direta quais medidas pesam na decisão, o que ajuda o médico a confiar no modelo. No teste, ele acertou 111 de 114 pacientes (acurácia de 0,97), sem nenhum alarme falso. Os 3 erros são cânceres classificados como benignos.
+Valores médios dos 10 sorteios. No custo, a regressão logística e o SVM ficaram num empate técnico: com outros sorteios, o SVM fica na frente muitas vezes. A regressão logística foi escolhida por dois motivos. Primeiro, na regra do grupo, ela perde menos cânceres (2,3 contra 3,1 de 170), que é o erro mais grave; o SVM só empata no custo porque dá menos alarmes falsos. Segundo, ela é mais simples de explicar: cada medida tem um peso. O ajuste do C manteve o valor padrão (C = 1). O PCA aumentou o custo e ficou de fora. O limiar exato importa pouco: entre 0,08 e 0,20, o custo quase não muda. O importante é que ele seja baixo, perto de 0,1.
+
+No teste, com o limiar de 0,097, o modelo encontrou **41 dos 42 cânceres** e deu **5 alarmes falsos** em 72 benignos. Com o limiar padrão de 0,5, teriam sido 3 cânceres perdidos. O câncer perdido tem medidas típicas de tumor benigno, como mostra o SHAP.
+
+**Transparência:** numa primeira versão, o modelo era um Random Forest com limiar de 0,5, que perdeu 3 cânceres no teste. O grupo não achou isso aceitável e não seguiu com essa versão. Ela também mostrou no teste o efeito de baixar o limiar. Foram esses resultados que levaram à regra de custo, ou seja, o teste já tinha sido visto. Por isso, o modelo, o C e o limiar novos foram escolhidos só com a validação, e o modelo novo foi testado uma única vez.
 
 <p align="center">
-  <img src="figuras/matriz_confusao.png" alt="Matriz de confusão do Random Forest no teste" width="45%">
-  <img src="figuras/feature_importance.png" alt="As 10 medidas mais importantes do Random Forest" width="45%">
+  <img src="figuras/matriz_confusao.png" alt="Matriz de confusão da regressão logística no teste, com o limiar de 0,097" width="45%">
+  <img src="figuras/feature_importance.png" alt="As 10 medidas com maior peso na regressão logística" width="45%">
 </p>
 
-As medidas que mais pesam formam dois grupos: o tamanho do núcleo da célula (perímetro, área e raio) e a concavidade (pontos côncavos). Isso combina com a análise de correlação e faz sentido médico.
-
-O **SHAP** completa a leitura. A importância das variáveis dá um número só para o modelo todo; o SHAP mostra a direção de cada medida e explica a decisão de cada paciente. As 5 medidas que mais pesam pelo SHAP são as mesmas 5, e valores altos delas (pontos vermelhos) empurram para maligno. Ele também explica um dos 3 cânceres perdidos: as medidas desse paciente estavam mais perto das de um tumor benigno.
+As medidas que mais pesam formam grupos: textura, tamanho do núcleo (raio e área), concavidade e simetria. Valores altos empurram para maligno, o que combina com a análise de correlação. O **SHAP** mostra a direção de cada medida e explica a decisão de cada paciente.
 
 <p align="center">
   <img src="figuras/shap_resumo.png" alt="SHAP: cada ponto é um paciente; à direita, a medida empurra para maligno" width="70%">
 </p>
 
-**Limiar de decisão: cânceres perdidos × alarmes falsos.** O modelo dá uma chance de câncer para cada paciente, e o corte padrão é 0,5. Baixar o corte pega mais cânceres, mas gera mais alarmes falsos. Cada corte foi escolhido na validação cruzada, só com o treino, e depois conferido no teste:
+**O preço do limiar.** Baixar o limiar pega mais cânceres, mas gera mais alarmes falsos:
 
-| Meta de recall na validação | Limiar | Cânceres perdidos no teste | Alarmes falsos no teste |
-| --- | --- | --- | --- |
-| padrão | 0,5 | 3 de 42 | 0 de 72 |
-| 98% | 0,21 | 2 de 42 | 6 de 72 |
-| 99% | 0,03 | 0 de 42 | 23 de 72 |
-| 100% | 0,007 | 0 de 42 | 44 de 72 |
+| Limiar | Cânceres perdidos no teste | Alarmes falsos no teste |
+| --- | --- | --- |
+| padrão (0,5) | 3 de 42 | 1 de 72 |
+| escolhido pelo custo (0,097) | 1 de 42 | 5 de 72 |
+| zero perdidos na validação (0,001) | 0 de 42 | 40 de 72 |
 
-Os últimos cânceres custam muitos alarmes falsos, porque alguns têm medidas de tumor benigno. Por isso, a escolha do limiar fica com a equipe médica. Os resultados acima usam o limiar padrão.
+Os primeiros cânceres saem baratos (cerca de 4 alarmes por câncer, na validação); os últimos custariam cerca de 62 alarmes cada. Mesmo com peso 50, o limiar de menor custo seria 0,063: o "zero perdidos" só venceria com peso 85 ou mais. E nem ele garante zero em pacientes novos. O limiar final deve ser revisto com a equipe médica.
 
 <p align="center">
   <img src="figuras/limiar_tradeoff.png" alt="Troca entre cânceres perdidos e alarmes falsos conforme o limiar" width="60%">
@@ -109,10 +111,10 @@ O mapa de oclusão cobre um pedaço da imagem por vez e mede quanto a certeza de
 | --- | --- | --- |
 | Exploração | estatísticas descritivas, contagem das classes, histogramas, boxplot e correlação | contagem das classes, exemplos, imagem média e brilho de cada classe |
 | Pré-processamento | remove `id` e `Unnamed: 32`; alvo com LabelEncoder (maligno = 1); padronização dentro de um Pipeline | tons de cinza, 128 × 128 pixels, valores entre 0 e 1; pneumonia = 1 |
-| Divisão | 80% treino e 20% teste, estratificado; validação cruzada KFold de 5 partes no treino | pasta `test` como teste (624 imagens); validação de cerca de 20% tirada do treino, separada por paciente e estratificada |
-| Modelos | KNN, SVM, Árvore e Random Forest; teste com PCA; GridSearchCV nos 2 melhores | CNN 1 (3 convoluções); CNN 2 (128 filtros, um pooling a mais e Dropout); PCA + Random Forest |
-| Avaliação | matriz de confusão, recall, precisão, F1, curva ROC e AUC | recall das 2 classes, matriz de confusão, curva ROC e AUC |
-| Interpretação | importância das variáveis, SHAP, uma árvore de 3 níveis desenhada e a troca do limiar de decisão | grade de acertos e erros e mapa de oclusão |
+| Divisão | 80% treino e 20% teste, estratificado; validação cruzada KFold de 5 partes no treino, repetida com 10 sorteios | pasta `test` como teste (624 imagens); validação de cerca de 20% tirada do treino, separada por paciente e estratificada |
+| Modelos | regressão logística, KNN, SVM, Árvore e Random Forest; teste com PCA; ajuste do C da regressão logística | CNN 1 (3 convoluções); CNN 2 (128 filtros, um pooling a mais e Dropout); PCA + Random Forest |
+| Avaliação | limiar escolhido pelo custo na validação; matriz de confusão, recall, precisão, F1, curva ROC e AUC | recall das 2 classes, matriz de confusão, curva ROC e AUC |
+| Interpretação | pesos da regressão logística (importância das variáveis), SHAP e a troca do limiar de decisão | grade de acertos e erros e mapa de oclusão |
 
 Os detalhes e as justificativas de cada escolha estão no [relatório técnico](relatorio_tecnico.pdf) e nos textos dos próprios notebooks.
 
@@ -227,13 +229,15 @@ A base da Parte B vem do artigo de Kermany et al. (2018), *Identifying Medical D
 
 ## Limitações
 
-- **Parte A:** o modelo ainda deixou passar 3 de 42 cânceres no teste. A base é pequena e vem de um único centro, nos EUA.
+- **Parte A:** o modelo ainda deixou passar 1 de 42 cânceres no teste, e com só 42 cânceres a taxa real pode ser maior (até cerca de 13%, com 95% de confiança). O limiar baixo gera alarmes falsos (5 de 72 no teste). A base é pequena e vem de um único centro, nos EUA. Nela, 37% são malignos; no hospital, essa proporção pode mudar a precisão e o melhor limiar.
 - **Parte B:** a base tem só crianças de 1 a 5 anos, de um único hospital na China. O modelo não vale para adultos nem para outros aparelhos sem um novo teste. No teste, o recall de NORMAL caiu de 0,95 (validação) para 0,41: o modelo ainda dá alarmes falsos demais.
 - **As duas partes:** antes de qualquer uso real, os modelos precisam ser testados com dados do próprio hospital. O limiar de decisão deve ser definido com a equipe médica.
 
 ## Integrantes
 
-| GitHub |
+| Perfil |
 | --- |
-| [@usuario] |
-| [@usuario] |
+| [GitHub: @gabrielrb](https://github.com/gabrielrb) |
+| [GitHub: @Macedole](https://github.com/Macedole) |
+| [GitHub: @gomezllari](https://github.com/gomezllari) |
+| [LinkedIn: lucas-germano-f](https://www.linkedin.com/in/lucas-germano-f-20913a101/) |
